@@ -5,19 +5,6 @@ on:
 
 
 jobs:
-  docker-build:
-    name: Docker Build
-    runs-on: ubuntu-latest
-
-    steps:
-    # Check out code from the repository
-    - name: Check out repository
-      uses: actions/checkout@v2
-
-    # Build the Docker image
-    - name: Build Docker image
-      run: docker build -t my-image:${{ github.run_id }} .
-
   apiiro-scan:
     name: Apiiro Build Scan
     runs-on: ubuntu-latest
