@@ -1,0 +1,89 @@
+name: Docker Build and Apiiro Scan
+
+on:
+  workflow_dispatch:
+
+
+jobs:
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+
+    steps:
+    # Check out code from the repository
+    - name: Check out repository
+      uses: actions/checkout@v2
+
+    # Build the Docker image
+    - name: Build Docker image
+      run: docker build -t my-image:${{ github.run_id }} .
+
+  apiiro-scan:
+    name: Apiiro Build Scan
+    runs-on: ubuntu-latest
+    needs: docker-build # Ensures this job runs only after 'docker-build' completes successfully
+
+    steps:
+    # Apiiro API Build Scan
+    - name: Apiiro API Build Scan
+      run: |
+        return_string=$(curl  -s --location 'https://app-staging.apiiro.com/rest-api/v1/buildScan/builds' \
+              --header 'Content-Type: application/json' \
+              --header 'Authorization: Bearer ${{ secrets.BEARER_TOKEN }}' \
+              --data '
+              {
+              "commitSha": "${{ github.sha }}",
+              "repositoryUrl": "https://github.com/${{github.repository}}",
+              "buildId": "${{ github.run_id }}"
+              }')
+        echo "$return_string"
+        echo "${{ github.sha }}"
+        echo "${{ github.run_id }}"
+        echo "RETURN_STRING=$return_string" >> $GITHUB_ENV
+      continue-on-error: true
+    
+    - name: Apiiro API Results Scan
+      run: |
+        max_retries=20
+        current_retry=0
+        echo "Starting Apiiro API Results Scan..."
+    
+        while true; do
+            echo "Attempt: $current_retry of $max_retries"
+            response=$(curl -sS --insecure --retry 15 --retry-max-time 900 --retry-delay 45 --location --request GET "https://app-staging.apiiro.com/rest-api/v2/buildScan/${{ env.RETURN_STRING }}/results" \
+            --header 'Content-Type: application/json' \
+            --header 'Authorization: Bearer ${{ secrets.BEARER_TOKEN }}')
+    
+            # Check if the response is valid JSON
+            if ! echo "$response" | jq empty 2>/dev/null; then
+                echo "Received an invalid JSON response. Waiting before the next check..."
+                sleep 5
+            else
+                echo "API Response Summary:"
+                echo "$response" | jq -r '.summary'
+                echo "---------------------"
+                echo "API Scan Results:"
+                # Ensure there are scan results to show, otherwise skip this part
+                if echo "$response" | jq -e '.scanResults' >/dev/null 2>&1; then
+                    echo "$response" | jq -r '.scanResults[]'
+                else
+                    echo "No scan results available."
+                fi
+                echo "---------------------"
+                
+                # Check buildPassed status using grep
+                if echo "$response" | jq -e '.buildPassed' 2>/dev/null | grep -q "true"; then
+                    echo "Pipeline can continue. Apiiro scan passed."
+                    exit 0
+                else
+                    echo "Unexpected JSON format or missing 'buildPassed' key."
+                    exit 1
+                fi
+            fi
+    
+            ((current_retry++))
+            if [[ $current_retry -ge $max_retries ]]; then
+                echo "Max retries reached without a conclusive result. Exiting."
+                exit 1
+            fi
+        done
