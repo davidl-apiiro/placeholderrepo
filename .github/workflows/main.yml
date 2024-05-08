@@ -8,7 +8,7 @@ jobs:
   apiiro-scan:
     name: Apiiro Build Scan
     runs-on: ubuntu-latest
-    needs: docker-build # Ensures this job runs only after 'docker-build' completes successfully
+ 
 
     steps:
     # Apiiro API Build Scan
